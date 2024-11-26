@@ -69,9 +69,11 @@ static void MX_FSMC_Init(void);
 /* USER CODE BEGIN 0 */
 //stop the current PWM, then change the Compare register to change pulse (duty cycle)
 //ARR is for period
-void changePulseX(uint16_t newPulse)
+void changePulseX(uint16_t newPulse, uint16_t set)
 {
 	//stop channel before change data
+	if(set == 1)
+	{
 	HAL_TIM_PWM_Stop(&htim2, TIM_CHANNEL_4);
 	//instance allows direct access to hardware registers
 	double percent = newPulse/100.0;
@@ -79,10 +81,23 @@ void changePulseX(uint16_t newPulse)
 	htim2.Instance->CCR4 = ans;//CCR means the compare register for channel 3
 	//Start after settings are done.
 	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_4);
+	}
+	else//set two
+	{
+		HAL_TIM_PWM_Stop(&htim2, TIM_CHANNEL_2);
+		//instance allows direct access to hardware registers
+		double percent = newPulse/100.0;
+		uint16_t ans = (uint16_t)(percent*1200);
+		htim2.Instance->CCR2 = ans;//CCR means the compare register for channel 3
+		//Start after settings are done.
+		HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);
+	}
 
 }
-void changePulseY(uint16_t newPulse)
+void changePulseY(uint16_t newPulse, uint16_t set)
 {
+	if(set == 1)
+	{
 	//stop channel before change data
 	HAL_TIM_PWM_Stop(&htim2, TIM_CHANNEL_3);
 	//instance allows direct access to hardware registers
@@ -91,8 +106,133 @@ void changePulseY(uint16_t newPulse)
 	htim2.Instance->CCR3 = ans;//CCR means the compare register for channel 3
 	//Start after settings are done.
 	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_3);
+	}
+	else
+	{
+		HAL_TIM_PWM_Stop(&htim2, TIM_CHANNEL_1);
+		//instance allows direct access to hardware registers
+		double percent = newPulse/100.0;
+		uint16_t ans = (uint16_t)(percent*1200);
+		htim2.Instance->CCR3 = ans;//CCR means the compare register for channel 3
+		//Start after settings are done.
+		HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
+	}
 
 }
+typedef struct {
+    uint16_t dutycycle;
+    int16_t preduty;
+    //float dutycycleY;
+} ServoSystem;
+void read_dutycycle(ADC_HandleTypeDef *hadc,ServoSystem * servo)
+{
+	 HAL_ADC_PollForConversion(hadc,1000);
+	 uint32_t temp_ans = HAL_ADC_GetValue(hadc);
+	 uint16_t ans = (uint16_t)(temp_ans & 0xFFFF);
+	 float ratio = 0.4639;
+	 float width = ans*ratio+500;
+	 uint16_t period = 20000;
+	 servo->dutycycle = (uint16_t)((width/period)*100.0);
+}
+void updateServo(ServoSystem *servoX, ServoSystem *servoY, uint16_t set)
+{
+	read_dutycycle(&hadc2,servoX);
+	read_dutycycle(&hadc1,servoY);
+	if((servoX->dutycycle != 9 && servoX->dutycycle !=8)||(servoY->dutycycle != 9 && servoY->dutycycle !=8))//when is moving
+	{
+		int changeX = 0;
+		int changeY = 0;
+
+		 do{
+			uint32_t startTime = HAL_GetTick();
+			uint32_t currentTick = HAL_GetTick();
+			while(currentTick-startTime<100)//same as delay
+			{
+				currentTick = HAL_GetTick();//update current time
+			}
+		  	//HAL_Delay(100);//wait 0.2s to detect the next movement
+		  	read_dutycycle(&hadc2,servoX);
+		  	read_dutycycle(&hadc1,servoY);
+		  		//check if release button
+		  		/*if(newduty_cycleX == 9 || newduty_cycleX == 8 )//the button is released
+		  		{
+		  			change = 0;
+		  		}*/
+		  		if((servoX->dutycycle != 9 && servoX->dutycycle !=8))//if still moving for X
+		  		{
+		  			//might only moving in one direction
+		  			//seperate for X and Y here, so when X not moving, Y can still move.
+		  			if(servoX->dutycycle<9)
+		  			{
+		  				changeX = 1;
+		  			}
+		  			else
+		  			{
+		  				changeX = -1;
+		  			}
+		  			servoX->preduty += changeX;
+		  			if( servoX->preduty < 0)
+		  			{
+		  				servoX->preduty = 0;
+		  			}
+		  			if(servoX->preduty > 11)
+		  			{
+		  				servoX->preduty = 11;
+		  			}
+		  			if(set == 1)
+		  			{
+		  			char preX[4];
+		  			sprintf(preX,"%04d",servoX->preduty);
+		  			LCD_DrawString(0,0,preX);
+		  			}
+		  			else
+		  			{
+		  				char preX[4];
+		  				sprintf(preX,"%04d",servoX->preduty);
+		  			    LCD_DrawString(40,0,preX);
+		  			}
+		  			changePulseX(servoX->preduty,set);
+		  		}
+		  		if((servoY->dutycycle != 9 && servoY->dutycycle !=8))//if still moving for Y
+		  		{
+		  			if(servoY->dutycycle<9)
+		  			{
+		  				changeY = 1;
+		  			}
+		  			else
+		  			{
+		  				changeY = -1;
+		  			}
+		  			servoY->preduty += changeY;
+		  			if( servoY->preduty < 0)
+		  			{
+		  				servoY->preduty = 0;
+		  			}
+		  			if(servoY->preduty > 11)
+		  			{
+		  				servoY->preduty = 11;
+		  			}
+		  			if(set ==1)
+		  			{
+		  			char preY[4];
+		  			sprintf(preY,"%04d",servoY->preduty);
+		  			LCD_DrawString(0,50,preY);
+		  			}
+		  			else
+		  			{
+		  				char preY[4];
+		  				sprintf(preY,"%04d",servoY->preduty);
+		  				LCD_DrawString(40,50,preY);
+		  			}
+		  			changePulseY(servoY->preduty,set);
+		  		}
+		  		}while((servoX->dutycycle != 9 && servoX->dutycycle !=8)&&(servoY->dutycycle != 9 && servoY->dutycycle !=8));//knob is released and not moving at all
+	}
+
+
+
+}
+
 
 
 /* USER CODE END 0 */
@@ -141,7 +281,10 @@ int main(void)
   HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1);
   //HAL_TIM_PWM_Start(&htim5, TIM_CHANNEL_3);
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_4);
-  uint16_t duty_cycle=0;
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_3);
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
+  /*uint16_t duty_cycle=0;
   uint16_t duty_cycle2=0;
   uint16_t current_dutyX=0;
   int16_t prev_dutyX = 9;
@@ -153,7 +296,12 @@ int main(void)
   uint16_t newduty_cycleX =0;
   uint16_t newduty_cycleY =0;
   int16_t change = 0;
-  int16_t change2 = 0;
+  int16_t change2 = 0;*/
+  ServoSystem X1;
+  ServoSystem Y1;
+  X1.preduty=9;
+  Y1.preduty=9;
+  int pressed = 0;
 
 
   /* USER CODE END 2 */
@@ -165,13 +313,40 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+	  ServoSystem X1;
+	  ServoSystem Y1;
+	  ServoSystem X2;
+	  ServoSystem Y2;
+	  if(HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_7) == GPIO_PIN_RESET)
+	  {
+		  if(pressed == 0)
+		  {
+
+			  pressed ++;
+		  }
+		  else
+		  {
+			  pressed--;
+
+		  }
+	  }
+	  if(pressed == 0)
+	  {
+		  updateServo(&X1,&Y1,1);
+	  }
+	  else
+	  {
+		  updateServo(&X2,&Y2,2);
+	  }
+
+
 	 //if(HAL_GPIO_ReadPin(GPIOA,GPIO_PIN_0) == SET && HAL_GPIO_ReadPin(GPIOC,GPIO_PIN_13) == SET )//if pressed together set to middle
 	 	  //{
 	 		//  changePulse(90);
 	 	  //}
 	  //keep doing pulse change
 
-		 HAL_ADC_PollForConversion(&hadc2,1000);
+		 /*HAL_ADC_PollForConversion(&hadc2,1000);
 		 HAL_ADC_PollForConversion(&hadc1,1000);
 
 		 uint32_t temp_ans1 = HAL_ADC_GetValue(&hadc2);
@@ -186,35 +361,7 @@ int main(void)
 		 //sprintf(change,"%02d",diff);
 		 //LCD_DrawString(50,130,change);
 
-		/* if(diff >= threshold)//when is moving
-		 {
-			 HAL_Delay(500);
-			 HAL_ADC_PollForConversion(&hadc2,1000);
-			 uint32_t temp_pwmX = HAL_ADC_GetValue(&hadc2);
-			 //get new value after delay to confirm if joystick stoped or still moving.
-			 uint16_t new_pwmX = (uint16_t)(temp_pwmX & 0xFFFF);
-			 int16_t diff_temp = ((int16_t)current_pwmX - (int16_t)prev_pwmX);// calculate difference
-			 if(diff_temp<0)
-			 {
-			 	diff_temp = -1*diff_temp;
-			 }
-			 if(diff_temp>100)//knob is still moving not released
-			 {
-				 stopX = 0;
-			 }
-			 else
-			 {
-				 stopX = 1;
-			 }
 
-
-
-		 }
-		 else
-		 {
-			 stopX = 0; //also set stopX back to 0 to stopped and pushed again.
-		 }
-		 */
 		 char decimal1[5];//5
 		 char hex_ans1[4];//4
 		 char d[4];
@@ -366,7 +513,7 @@ int main(void)
 	  	 //changePulseY(duty_cycle2);
 	  	//}
 	  	 //duty_cycle = (uint16_t)((width/1900.0)*100.0);
-	  	 //__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_4,duty_cycle);
+	  	 //__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_4,duty_cycle);*/
   }
   /* USER CODE END 3 */
 }
@@ -501,7 +648,7 @@ static void MX_ADC2_Init(void)
   */
   sConfig.Channel = ADC_CHANNEL_14;
   sConfig.Rank = ADC_REGULAR_RANK_1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_55CYCLES_5;
+  sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
   if (HAL_ADC_ConfigChannel(&hadc2, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -561,6 +708,16 @@ static void MX_TIM2_Init(void)
   sConfigOC.Pulse = 90;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.Pulse = 0;
+  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.Pulse = 90;
   if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_3) != HAL_OK)
   {
     Error_Handler();
@@ -735,6 +892,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PC7 */
+  GPIO_InitStruct.Pin = GPIO_PIN_7;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
   /*Configure GPIO pin : PA8 */
   GPIO_InitStruct.Pin = GPIO_PIN_8;
